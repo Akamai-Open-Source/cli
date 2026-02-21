@@ -99,8 +99,8 @@ func TestCmdUninstall(t *testing.T) {
 			},
 		},
 		"return error with exit code 1 when command not found": {
-			args: []string{"nonexistent"},
-			init: func(_ *testing.T, _ *mocked) {},
+			args:         []string{"nonexistent"},
+			init:         func(_ *testing.T, _ *mocked) {},
 			withError:    "not found",
 			withExitCode: 1,
 		},
