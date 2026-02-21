@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/akamai/cli/v2/pkg/config"
@@ -12,6 +14,7 @@ import (
 	"github.com/akamai/cli/v2/pkg/packages"
 	"github.com/akamai/cli/v2/pkg/terminal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli/v2"
 )
@@ -190,6 +193,79 @@ func TestPythonCmdSubcommand(t *testing.T) {
 
 		m.cfg.AssertExpectations(t)
 		require.NoError(t, err)
+	})
+}
+
+// TestCmdSubcommandPythonVenvPrompt verifies the behavior of the Python virtual
+// environment reinstall prompt. When a stale venv directory is detected inside a
+// Python-based package, the CLI should prompt the user to reinstall. This test
+// exercises the decline path: if the user declines, an error containing the
+// ErrPackageNeedsReinstall message is returned with a non-zero exit code.
+func TestCmdSubcommandPythonVenvPrompt(t *testing.T) {
+	t.Run("python command with stale venv prompts for reinstall and user declines", func(t *testing.T) {
+		require.NoError(t, os.Setenv("AKAMAI_CLI_HOME", "./testdata"))
+
+		// Determine the OS-specific stale virtual environment directory name.
+		// On Linux the marker is ".local", on macOS it is "Library", and on
+		// all other platforms (including Windows) it is "Lib".
+		var staleDirName string
+		switch runtime.GOOS {
+		case "linux":
+			staleDirName = ".local"
+		case "darwin":
+			staleDirName = "Library"
+		default:
+			staleDirName = "Lib"
+		}
+
+		packageDir := filepath.Join("testdata", ".akamai-cli", "src", "cli-echo-python")
+
+		// Create the stale virtual environment directory to trigger the reinstall prompt.
+		staleDir := filepath.Join(packageDir, staleDirName)
+		require.NoError(t, os.MkdirAll(staleDir, 0755))
+		defer func() { _ = os.RemoveAll(staleDir) }()
+
+		pythonBin, err := exec.LookPath("python3")
+		if err != nil {
+			t.Skipf("Python binary not available, skipping test: %s", err.Error())
+		}
+
+		m := &mocked{&terminal.Mock{}, &config.Mock{}, &git.MockRepo{}, &packages.Mock{}, nil}
+		command := &cli.Command{
+			Name:   "echo-python",
+			Action: cmdSubcommand(m.gitRepo, m.langManager),
+		}
+		app, ctx := setupTestApp(command, m)
+		args := os.Args[0:1]
+		args = append(args, "echo-python")
+		args = append(args, "test")
+
+		// Mock spinner calls defensively — they may or may not be invoked
+		// depending on which execution path is taken.
+		m.term.On("Spinner").Return(m.term)
+		m.term.On("Start", "Running echo-python command...", []interface{}(nil)).Return()
+		m.term.On("Fail").Return()
+
+		// Mock FindExec for the glob fallback path in findExec (called if LookPath fails).
+		m.langManager.On("FindExec", packages.LanguageRequirements{Python: "3.0.0"},
+			filepath.Join(packageDir, "bin", "akamai-echo-python")).
+			Return([]string{pythonBin, filepath.Join(packageDir, "bin", "akamai-echo-python")}, nil)
+		// Mock FindExec for the Python block in cmdSubcommand (called with the package directory).
+		m.langManager.On("FindExec", packages.LanguageRequirements{Python: "3.0.0"}, packageDir).
+			Return([]string{pythonBin, filepath.Join(packageDir, "bin", "akamai-echo-python")}, nil)
+
+		// Mock the Confirm call with a flexible matcher that verifies the updated
+		// prompt contains the keyword "reinstall" without coupling to exact wording.
+		// The user declines (returns false) which should trigger an error.
+		m.term.On("Confirm", mock.MatchedBy(func(msg string) bool {
+			return strings.Contains(msg, "reinstall") || strings.Contains(msg, "Reinstall")
+		}), true).Return(false, nil).Once()
+
+		err = app.RunContext(ctx, args)
+
+		m.cfg.AssertExpectations(t)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "reinstall")
 	})
 }
 
