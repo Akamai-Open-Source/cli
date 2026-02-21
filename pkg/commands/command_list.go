@@ -25,11 +25,17 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// cmdList handles the "akamai list" command. It delegates to cmdListWithPackageReader
+// using the embedded package catalog as the default package reader.
 func cmdList(c *cli.Context) (e error) {
 	pr := newPackageReader(embeddedPackages)
 	return cmdListWithPackageReader(c, pr)
 }
 
+// cmdListWithPackageReader implements the list command logic. It displays installed commands
+// and, when the --remote flag is set, also shows available commands from the package catalog
+// that are not yet installed, along with install hints. Uses the named-return-error pattern
+// with deferred timing/logging.
 func cmdListWithPackageReader(c *cli.Context, pr packageReader) (e error) {
 	c.Context = log.WithCommandContext(c.Context, c.Command.Name)
 	start := time.Now()
@@ -44,8 +50,11 @@ func cmdListWithPackageReader(c *cli.Context, pr packageReader) (e error) {
 	}()
 	term := terminal.Get(c.Context)
 
+	// Retrieve all registered commands (built-in + installed) to render the installed section.
 	commands := listInstalledCommands(c, nil, nil)
 
+	// When --remote is set, fetch the package catalog and show commands that are available
+	// but not yet installed. Skip packages whose commands are all already installed.
 	if c.IsSet("remote") {
 		packages, err := pr.readPackage()
 		if err != nil {
@@ -97,6 +106,10 @@ func cmdListWithPackageReader(c *cli.Context, pr packageReader) (e error) {
 	return nil
 }
 
+// listInstalledCommands renders the list of installed commands to the terminal. Commands in
+// the added map are highlighted in green (newly installed), those in the removed map in red,
+// and all others in bold. Each command's aliases and description are displayed below its name.
+// Returns a map of installed command names for use in deduplication by the caller.
 func listInstalledCommands(c *cli.Context, added map[string]bool, removed map[string]bool) map[string]bool {
 	term := terminal.Get(c.Context)
 
