@@ -42,10 +42,10 @@ func TestIsCompatible(t *testing.T) {
 		"empty required with empty current compatible": {"", "", true},
 	}
 
-	for name, tc := range tests {
+	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			result := IsCompatible(tc.required, tc.current)
-			assert.Equal(t, tc.expected, result)
+			res := IsCompatible(test.required, test.current)
+			assert.Equal(t, test.expected, res)
 		})
 	}
 }
