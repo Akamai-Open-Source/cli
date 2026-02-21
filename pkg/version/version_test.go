@@ -25,3 +25,27 @@ func TestCompareVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestIsCompatible(t *testing.T) {
+	tests := map[string]struct {
+		required string
+		current  string
+		expected bool
+	}{
+		"empty required is always compatible":          {"", "2.0.3", true},
+		"current greater than required is compatible":  {"1.0.0", "2.0.3", true},
+		"current equals required is compatible":        {"2.0.3", "2.0.3", true},
+		"current less than required is incompatible":   {"3.0.0", "2.0.3", false},
+		"invalid required fails open to compatible":    {"abc", "2.0.3", true},
+		"invalid current fails open to compatible":     {"1.0.0", "xyz", true},
+		"both invalid fails open to compatible":        {"abc", "xyz", true},
+		"empty required with empty current compatible": {"", "", true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := IsCompatible(tc.required, tc.current)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
