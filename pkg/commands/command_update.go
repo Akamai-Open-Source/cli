@@ -35,6 +35,12 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// cmdUpdate creates a cli.ActionFunc that handles the "akamai update" command. When called
+// without arguments, it updates all installed non-builtin commands. When called with specific
+// command names, it updates only those commands. Uses the named-return-error pattern with
+// deferred timing/logging for consistent command lifecycle tracking.
+//
+// Exit codes: 0 success, 1 user error (command not found, repo issues), 2 system error.
 func cmdUpdate(gitRepo git.Repository, langManager packages.LangManager) cli.ActionFunc {
 	return func(c *cli.Context) (e error) {
 		c.Context = log.WithCommandContext(c.Context, c.Command.Name)
@@ -48,6 +54,8 @@ func cmdUpdate(gitRepo git.Repository, langManager packages.LangManager) cli.Act
 				logger.Error(fmt.Sprintf("UPDATE ERROR: %v", e))
 			}
 		}()
+		// When no specific commands are specified, iterate over all installed commands
+		// and update each one, skipping built-in commands which are part of the CLI binary.
 		if !c.Args().Present() {
 			var builtinCmds = make(map[string]bool)
 			for _, cmd := range getBuiltinCommands(c) {
@@ -79,6 +87,13 @@ func cmdUpdate(gitRepo git.Repository, langManager packages.LangManager) cli.Act
 	}
 }
 
+// updatePackage updates a single installed command by its name. It resolves the command's
+// executable via findExec, locates the package directory, and attempts a git pull. If the
+// repository is corrupted or not a git repo, it falls back to comparing remote cli.json
+// versions from GitHub and reinstalling the package if versions differ.
+//
+// Returns an error wrapped in cli.Exit with exit code 1 for user-correctable issues
+// (command not found, repo errors) or propagated directly for system failures.
 func updatePackage(ctx context.Context, gitRepo git.Repository, langManager packages.LangManager, logger *slog.Logger, cmd string) error {
 	term := terminal.Get(ctx)
 	exec, _, err := findExec(ctx, langManager, cmd)
@@ -109,6 +124,10 @@ func updatePackage(ctx context.Context, gitRepo git.Repository, langManager pack
 
 	err = gitRepo.Open(repoDir)
 	if err != nil {
+		// If the repository cannot be opened as a git repo (e.g., binary-only install),
+		// compare local and remote package versions from GitHub. If versions differ,
+		// move the current package to a temp directory, reinstall from scratch, and
+		// clean up the temp directory on success.
 		logger.Debug("Unable to open repo")
 
 		cmdPackage, err := readPackage(repoDir)
@@ -190,7 +209,7 @@ func updatePackage(ctx context.Context, gitRepo git.Repository, langManager pack
 	if ok, _ := installPackageDependencies(ctx, langManager, repoDir, logger); !ok {
 		term.Spinner().Fail()
 		logger.Debug("Error updating dependencies")
-		return cli.Exit("Unable to update command", 1)
+		return cli.Exit(color.RedString("Unable to update command"), 1)
 	}
 
 	term.Spinner().OK()
@@ -199,12 +218,17 @@ func updatePackage(ctx context.Context, gitRepo git.Repository, langManager pack
 	return nil
 }
 
+// updateRepo performs a git pull on the package repository. It resets uncommitted changes,
+// fetches from the remote, and compares HEAD hashes before and after the pull. If the HEAD
+// is unchanged, it reports the command as already up-to-date. Error messages follow the
+// consistent pattern using color.RedString and tools.CapitalizeFirstWord.
 func updateRepo(ctx context.Context, gitRepo git.Repository, logger *slog.Logger, term terminal.Terminal, cmd string) error {
 	w, err := gitRepo.Worktree()
 	if err != nil {
 		term.Spinner().Fail()
 		logger.Error("Unable to open repo")
-		return cli.Exit(color.RedString("unable to update, there was an issue with the package repo: %v", err), 1)
+		// Exit code 2: git worktree failure is a system-level error, not user-correctable.
+		return cli.Exit(color.RedString("unable to update, there was an issue with the package repo: %v", err), 2)
 	}
 
 	if err := gitRepo.Reset(&gogit.ResetOptions{Mode: gogit.HardReset}); err != nil {
