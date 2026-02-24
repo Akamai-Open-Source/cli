@@ -3,6 +3,7 @@ package commands
 import (
 	"testing"
 
+	"github.com/akamai/cli/v2/pkg/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,6 +84,84 @@ func TestReadPackageVersionField(t *testing.T) {
 				assert.Empty(t, subcommands.Commands[0].Version,
 					"missing version field should default to empty string")
 			}
+		})
+	}
+}
+
+// TestReadPackageTopLevelVersion validates that the optional top-level "version" field
+// in cli.json is parsed into subcommands.Version. This field represents the package's
+// minimum required CLI version for compatibility enforcement via version.IsCompatible.
+func TestReadPackageTopLevelVersion(t *testing.T) {
+	tests := map[string]struct {
+		directory            string
+		expectPackageVersion string
+		withError            string
+	}{
+		"top-level version present is parsed correctly": {
+			directory:            "./testdata/repo_version_compatible",
+			expectPackageVersion: "1.0.0",
+		},
+		"top-level version absent defaults to empty string": {
+			directory:            "./testdata/repo_version_empty",
+			expectPackageVersion: "",
+		},
+		"high top-level version is parsed correctly": {
+			directory:            "./testdata/repo_version_incompatible",
+			expectPackageVersion: "99.0.0",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			pkg, err := readPackage(test.directory)
+			if test.withError != "" {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), test.withError)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, test.expectPackageVersion, pkg.Version,
+				"top-level version field should match expected value")
+		})
+	}
+}
+
+// TestVersionEnforcementWithIsCompatible verifies the integration between the
+// parsed top-level package version and version.IsCompatible. This tests the
+// enforcement logic used in cmdSubcommand before plugin execution.
+func TestVersionEnforcementWithIsCompatible(t *testing.T) {
+	tests := map[string]struct {
+		directory        string
+		expectCompatible bool
+	}{
+		"compatible package version passes enforcement": {
+			directory:        "./testdata/repo_version_compatible",
+			expectCompatible: true,
+		},
+		"incompatible package version fails enforcement": {
+			directory:        "./testdata/repo_version_incompatible",
+			expectCompatible: false,
+		},
+		"missing package version is always compatible": {
+			directory:        "./testdata/repo_version_empty",
+			expectCompatible: true,
+		},
+		"existing repo without top-level version is compatible": {
+			directory:        "./testdata/repo",
+			expectCompatible: true,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			pkg, err := readPackage(test.directory)
+			require.NoError(t, err)
+			// Simulate the enforcement check from cmdSubcommand: use the parsed
+			// package version as "required" and the current CLI version as "current".
+			compatible := version.IsCompatible(pkg.Version, version.Version)
+			assert.Equal(t, test.expectCompatible, compatible,
+				"version.IsCompatible(pkg.Version=%q, version.Version=%q) should be %v",
+				pkg.Version, version.Version, test.expectCompatible)
 		})
 	}
 }

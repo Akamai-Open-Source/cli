@@ -62,9 +62,17 @@ import (
 // contains the list of commands provided by the package, language requirements for
 // building from source, the derived package name (Pkg), and optionally the raw JSON
 // bytes for binary-only installations.
+//
+// The optional Version field is the package-level minimum CLI version requirement.
+// When present (e.g., "version": "2.0.0"), the CLI uses version.IsCompatible to verify
+// that the running CLI version meets the package's minimum requirement before executing
+// plugin commands. When absent or empty, the package is treated as compatible with any
+// CLI version (fail-open). This field is distinct from the per-command Version in
+// the command struct, which tracks the command's own release version.
 type subcommands struct {
 	Commands     []command                     `json:"commands"`
 	Requirements packages.LanguageRequirements `json:"requirements"`
+	Version      string                        `json:"version,omitempty"`
 	Action       cli.ActionFunc                `json:"-"`
 	Pkg          string                        `json:"pkg"`
 	raw          []byte

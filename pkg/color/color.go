@@ -1,4 +1,22 @@
-// Package color provides translation of the colors to the monochromatic representation
+// Package color provides styled text output helpers for user-facing CLI messages.
+//
+// # Output Style Rules
+//
+// These helpers apply terminal text attributes (bold, italic, reverse video, etc.) to
+// format messages for the user. Whether styling is visible depends on the output
+// environment:
+//
+//   - TTY (interactive terminal): Text attributes are rendered by the terminal emulator.
+//     Callers (e.g., command handlers) use RedString for errors, GreenString for success,
+//     and YellowString for warnings.
+//   - Non-TTY (piped or redirected output): The underlying github.com/fatih/color library
+//     automatically detects non-TTY file descriptors and strips ANSI escape sequences,
+//     producing plain text. No caller-side changes are needed.
+//   - Scripted / CI use: When output is not a TTY (e.g., CI pipelines), colors are
+//     suppressed automatically. Callers that need to check interactivity explicitly
+//     should use terminal.IsTTY() from pkg/terminal.
+//
+// For the full output style and consistency rules, see docs/plugin-contract.md.
 package color
 
 import (

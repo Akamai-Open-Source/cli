@@ -26,6 +26,7 @@ import (
 	"github.com/akamai/cli/v2/pkg/log"
 	"github.com/akamai/cli/v2/pkg/packages"
 	"github.com/akamai/cli/v2/pkg/terminal"
+	"github.com/akamai/cli/v2/pkg/version"
 	"github.com/urfave/cli/v2"
 )
 
@@ -74,6 +75,19 @@ func cmdSubcommand(git git.Repository, langManager packages.LangManager) cli.Act
 		if err != nil {
 			logger.Error(fmt.Sprintf("Error reading package: %v", err))
 			return err
+		}
+
+		// Enforce CLI version compatibility: if the package declares a minimum required
+		// CLI version via the top-level "version" field in cli.json, verify the running
+		// CLI meets that requirement. Missing or empty version is treated as compatible
+		// (fail-open). Incompatible version returns exit code 1 (user error).
+		if cmdPackage.Version != "" && !version.IsCompatible(cmdPackage.Version, version.Version) {
+			errMsg := color.RedString(
+				"Package \"%s\" requires CLI version >= %s, but current version is %s. Please upgrade the Akamai CLI.",
+				commandName, cmdPackage.Version, version.Version,
+			)
+			logger.Error(errMsg)
+			return cli.Exit(errMsg, 1)
 		}
 
 		if cmdPackage.Requirements.Python != "" {

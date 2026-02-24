@@ -126,8 +126,9 @@ The optional top-level `version` field enables CLI-to-package compatibility chec
 ### Semantics
 
 - The `version` field at the top level of `cli.json` is **optional**.
-- If **present**, the CLI may use it for compatibility checks (e.g., verifying the installed CLI version meets the package's minimum requirement).
+- If **present**, the CLI **enforces** compatibility via `version.IsCompatible` (in `pkg/version/version.go`) before executing plugin commands. The top-level version is used as the "required" minimum CLI version, and the running CLI version (`version.Version`) is the "current" version. If the current CLI version is older than the required version, the CLI returns a clear error message and exits with code 1 (user error). This enforcement is performed in `cmdSubcommand` (`pkg/commands/command_subcommand.go`) after reading the package manifest.
 - If **absent**, the package is treated as **compatible with any CLI version**. This is the default behavior and preserves backward compatibility with all existing packages.
+- If the version string cannot be parsed as valid semver, the check **fails open** (compatible) to avoid blocking plugin execution due to version parsing issues.
 - Version strings should follow [semantic versioning](https://semver.org/) (e.g., `"1.0.0"`, `"2.1.3"`).
 - The CLI uses `version.Compare` from `pkg/version/version.go` for version comparisons, which relies on the `github.com/Masterminds/semver` library.
 - Go's `encoding/json.Unmarshal` handles the absent field by leaving it as the zero value (`""`), so existing packages without this field continue to work without modification.

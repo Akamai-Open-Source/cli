@@ -12,6 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package log provides structured logging for the Akamai CLI, configured via
+// environment variables.
+//
+// # Logging Behavior and Environment Variables
+//
+// Log level is controlled by the AKAMAI_LOG environment variable. Accepted values
+// (case-insensitive): fatal, error, warn, warning, info, debug. When unset, the
+// default level is error.
+//
+// Log output destination is controlled by AKAMAI_CLI_LOG_PATH:
+//
+//   - When AKAMAI_CLI_LOG_PATH is unset: log output is written to the default writer
+//     (typically stderr), which may include ANSI color codes if the output is a TTY.
+//   - When AKAMAI_CLI_LOG_PATH is set: log output is written to the specified file.
+//     The file writer is wrapped with go-colorable's NonColorable adapter, which strips
+//     ANSI escape sequences. This ensures log files contain plain text regardless of
+//     the originating terminal's capabilities.
+//
+// These rules align with the output consistency requirements in docs/plugin-contract.md:
+// interactive terminals get styled output, while file-based or non-TTY destinations
+// receive plain text.
 package log
 
 import (
