@@ -32,27 +32,52 @@ import (
 	"github.com/akamai/cli/v2/pkg/version"
 )
 
+// versionProvider abstracts the source of CLI version information for testing.
+// It provides methods to get the latest released version from the remote repository
+// and the currently running version. The default implementation (defaultVersionProvider)
+// queries GitHub releases and reads from version.Version respectively.
 type versionProvider interface {
 	getLatestReleaseVersion(ctx context.Context) string
 	getCurrentVersion() string
 }
 
-// CheckUpgradeVersion ...
+// CheckUpgradeVersion checks whether a newer version of the Akamai CLI is available.
+// It delegates to checkUpgradeVersion with the default version provider that queries
+// GitHub releases. The force parameter bypasses the 24-hour throttle stored in config.
+//
+// Returns the latest version string if an upgrade is available or the current version
+// if already up-to-date. Returns an empty string if the check is skipped (non-TTY,
+// throttled, or upgrade checks disabled via config "ignore" setting).
 func CheckUpgradeVersion(ctx context.Context, force bool) string {
 	return checkUpgradeVersion(ctx, force, defaultVersionProvider{})
 }
 
+// checkUpgradeVersion implements the version check logic with an injected versionProvider
+// for testability. The check flow:
+//
+//  1. Skip if not running in a TTY (non-interactive environments).
+//  2. Read "cli.last-upgrade-check" from config. Skip if "ignore" (unless forced).
+//  3. If forced, "never", or last check was >24 hours ago: proceed with check.
+//  4. Save the current timestamp to config for throttling future checks.
+//  5. Compare current version against latest using version.Compare:
+//     - Smaller: newer version available → prompt user and return latest version
+//     - Equals: up-to-date → return current version (caller detects no-op)
+//     - Greater/Error: no action → return empty string
 func checkUpgradeVersion(ctx context.Context, force bool, provider versionProvider) string {
 	term := terminal.Get(ctx)
 	cfg := config.Get(ctx)
 	logger := log.FromContext(ctx)
 
+	// Skip upgrade checks in non-interactive environments (pipes, CI) since the user
+	// cannot respond to the upgrade prompt.
 	if !term.IsTTY() {
 		return ""
 	}
 
 	logger.Debug("Checking for upgrades")
 
+	// "ignore" disables upgrade checks entirely unless --force is used.
+	// "never" means no check has been performed yet → always check.
 	data, _ := cfg.GetValue("cli", "last-upgrade-check")
 	data = strings.TrimSpace(data)
 	if data == "ignore" && !force {
@@ -65,6 +90,8 @@ func checkUpgradeVersion(ctx context.Context, force bool, provider versionProvid
 		checkForUpgrade = true
 	}
 
+	// Parse the last upgrade check timestamp. If the check was performed less than
+	// 24 hours ago, skip to avoid excessive GitHub API calls.
 	if !checkForUpgrade {
 		configValue := strings.TrimPrefix(strings.TrimSuffix(data, "\""), "\"")
 		lastUpgrade, err := time.Parse(time.RFC3339, configValue)
@@ -87,6 +114,9 @@ func checkUpgradeVersion(ctx context.Context, force bool, provider versionProvid
 			return ""
 		}
 
+		// Compare versions using semver. If the current version is older (Smaller),
+		// prompt the user to upgrade. If equal, return the version so the caller can
+		// determine it's a no-op without re-checking.
 		latestVersion := provider.getLatestReleaseVersion(ctx)
 		currentVersion := provider.getCurrentVersion()
 		comp := version.Compare(currentVersion, latestVersion)
@@ -113,8 +143,14 @@ func checkUpgradeVersion(ctx context.Context, force bool, provider versionProvid
 	return ""
 }
 
+// defaultVersionProvider implements versionProvider by querying the GitHub releases API
+// for the latest version and reading the compiled-in version constant.
 type defaultVersionProvider struct{}
 
+// getLatestReleaseVersion queries the GitHub releases API for the latest release tag.
+// It uses a HEAD request to /releases/latest and extracts the version from the redirect
+// Location header. Returns "0" on any error (network failure, non-302 response).
+// The CLI_REPOSITORY environment variable can override the default GitHub URL.
 func (p defaultVersionProvider) getLatestReleaseVersion(ctx context.Context) string {
 	logger := log.FromContext(ctx)
 	client := &http.Client{
@@ -148,6 +184,7 @@ func (p defaultVersionProvider) getLatestReleaseVersion(ctx context.Context) str
 	return latestVersion
 }
 
+// getCurrentVersion returns the compiled-in CLI version string from version.Version.
 func (p defaultVersionProvider) getCurrentVersion() string {
 	return version.Version
 }

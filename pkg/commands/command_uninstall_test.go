@@ -27,9 +27,10 @@ func TestCmdUninstall(t *testing.T) {
 	cliEchoUninstallBin := filepath.Join(".", "testdata", ".akamai-cli", "src", "cli-echo-uninstall", "bin", "akamai-echo-uninstall")
 	cliEchoUninstallWinBin := filepath.Join(".", "testdata", ".akamai-cli", "src", "cli-echo-uninstall", "bin", "akamai-echo-uninstall.cmd")
 	tests := map[string]struct {
-		args      []string
-		init      func(*testing.T, *mocked)
-		withError string
+		args         []string
+		init         func(*testing.T, *mocked)
+		withError    string
+		withExitCode int
 	}{
 		"uninstall command": {
 			args: []string{"echo-uninstall"},
@@ -97,6 +98,12 @@ func TestCmdUninstall(t *testing.T) {
 
 			},
 		},
+		"return error with exit code 1 when command not found": {
+			args:         []string{"nonexistent"},
+			init:         func(_ *testing.T, _ *mocked) {},
+			withError:    "not found",
+			withExitCode: 1,
+		},
 	}
 
 	for name, test := range tests {
@@ -122,6 +129,12 @@ func TestCmdUninstall(t *testing.T) {
 			if test.withError != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), test.withError)
+				if test.withExitCode != 0 {
+					exitCoder, ok := err.(cli.ExitCoder)
+					if assert.True(t, ok, "expected cli.ExitCoder error") {
+						assert.Equal(t, test.withExitCode, exitCoder.ExitCode())
+					}
+				}
 				return
 			}
 			require.NoError(t, err)

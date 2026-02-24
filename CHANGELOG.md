@@ -1,5 +1,17 @@
 # RELEASE NOTES
 
+## 2.1.0 (Unreleased)
+
+### Enhancements
+
+* **Plugin contract formalization:** Added formal documentation for the plugin contract (`docs/plugin-contract.md`) covering required flags (`--edgerc`, `--section`, `--accountkey`), executable naming conventions (`akamai-<command>` / `akamai<Command>`), exit code conventions, help behavior, and the `SkipFlagParsing` execution contract.
+* **cli.json schema documentation:** Added formal schema documentation (`docs/cli-json-schema.md`) for the `cli.json` package manifest, including all supported fields with examples and validation rules.
+* **Optional version compatibility:** Added support for an optional `version` field in `cli.json` package manifests. The CLI can now perform compatibility checks using `requires CLI >= X` semantics. Missing version fields are treated as compatible, preserving backward compatibility with existing plugins.
+* **Exit code standardization:** Standardized exit codes for package management commands (`install`, `update`, `uninstall`) to use `0` for success, `1` for user errors, and `2` for system errors, aligned with Unix conventions.
+* **UX improvements:** Improved error message consistency across install, update, and uninstall commands using uniform `color.RedString` formatting. Enhanced spinner feedback for all long-running operations. Improved Python virtual environment reinstall prompt messaging for clarity.
+* **Help text improvements:** Added workflow guidance to help output (e.g., "configure .edgerc then run commands"). Enhanced Go doc comments across all core packages (`pkg/commands/`, `pkg/version/`, `pkg/app/`, `pkg/apphelp/`).
+* **Code documentation:** Added comprehensive Go doc comments documenting plugin contract behavior, discovery algorithms, execution contracts, and compatibility checking across core packages.
+
 ## 2.0.3 (Dec 10, 2025)
 
 ### Enhancements

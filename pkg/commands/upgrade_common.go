@@ -21,7 +21,27 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-// UpgradeCli pulls from GitHub the latest released CLI binary and performs the upgrade of the current executable
+// UpgradeCli pulls the latest released CLI binary from GitHub and performs an in-place
+// upgrade of the current executable. The upgrade process:
+//
+//  1. Constructs a download URL using the command template with version, OS, architecture,
+//     and binary suffix placeholders (e.g., akamai-2.0.3-linuxamd64).
+//  2. Downloads the binary from the constructed URL.
+//  3. Fetches and verifies the SHA-256 checksum from a corresponding .sig file.
+//  4. Applies the update atomically using go-update, which replaces the current executable
+//     with the downloaded binary after checksum verification.
+//  5. On success, re-launches the CLI with the original arguments via passthruCommand
+//     to allow the upgraded binary to take over execution.
+//
+// The CLI_REPOSITORY environment variable can override the default GitHub repository URL
+// (https://github.com/akamai/cli) for testing or private deployments.
+//
+// Exit codes on failure: 1 for all error conditions (template error, download failure,
+// checksum mismatch, rollback failure). Uses color.RedString for user-facing error messages.
+//
+// Parameters:
+//   - ctx: context carrying terminal and logging configuration
+//   - latestVersion: the version string to download (e.g., "2.1.0")
 func UpgradeCli(ctx context.Context, latestVersion string) (e error) {
 	term := terminal.Get(ctx)
 	logger := log.FromContext(ctx)
@@ -38,10 +58,15 @@ func UpgradeCli(ctx context.Context, latestVersion string) (e error) {
 		}
 	}()
 
+	// Allow overriding the default GitHub repository URL via CLI_REPOSITORY env var.
+	// This enables testing against staging releases or internal mirrors.
 	repo := "https://github.com/akamai/cli"
 	if r := os.Getenv("CLI_REPOSITORY"); r != "" {
 		repo = r
 	}
+
+	// Build a command struct with version, architecture, and OS info for URL templating.
+	// The URL template follows the pattern: <repo>/releases/download/<version>/akamai-<version>-<os><arch><suffix>
 	cmd := command{
 		Version: latestVersion,
 		Bin:     fmt.Sprintf("%s/releases/download/{{.Version}}/akamai-{{.Version}}-{{.OS}}{{.Arch}}{{.BinSuffix}}", repo),
@@ -57,6 +82,8 @@ func UpgradeCli(ctx context.Context, latestVersion string) (e error) {
 		cmd.BinSuffix = ".exe"
 	}
 
+	// Execute the URL template to produce the final download URL. The template supports
+	// {{.Version}}, {{.OS}}, {{.Arch}}, and {{.BinSuffix}} placeholders.
 	t := template.Must(template.New("url").Parse(cmd.Bin))
 	buf := &bytes.Buffer{}
 	if err := t.Execute(buf, cmd); err != nil {
@@ -80,6 +107,8 @@ func UpgradeCli(ctx context.Context, latestVersion string) (e error) {
 		}
 	}()
 
+	// Fetch the .sig file containing the expected SHA-256 checksum for the downloaded binary.
+	// The checksum is stored as a hex-encoded string and decoded for verification by go-update.
 	shaURL := fmt.Sprintf("%v%v", buf.String(), ".sig")
 	shaResp, err := http.Get(shaURL)
 	if err != nil || shaResp.StatusCode != http.StatusOK {
@@ -109,6 +138,9 @@ func UpgradeCli(ctx context.Context, latestVersion string) (e error) {
 
 	selfPath := os.Args[0]
 
+	// Atomically replace the current executable with the downloaded binary. go-update handles
+	// the platform-specific mechanics (rename, permission preservation). On failure, it attempts
+	// to roll back to the previous binary.
 	err = update.Apply(resp.Body, update.Options{TargetPath: selfPath, Checksum: shaSum})
 	if err != nil {
 		if rerr := update.RollbackError(err); rerr != nil {
@@ -120,6 +152,8 @@ func UpgradeCli(ctx context.Context, latestVersion string) (e error) {
 		return cli.Exit(color.RedString("Unable to upgrade: %s", err), 1)
 	}
 
+	// Re-execute the CLI with the original arguments using passthruCommand. This allows the
+	// newly installed binary to handle the --version flag and display the updated version.
 	os.Args[0] = selfPath
 	subCmd := createCommand(os.Args[0], os.Args[1:])
 	return passthruCommand(ctx, subCmd, packages.NewLangManager(), packages.LanguageRequirements{}, selfPath)

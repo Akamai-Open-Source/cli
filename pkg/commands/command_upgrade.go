@@ -28,6 +28,17 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// cmdUpgrade handles the "akamai upgrade" command. It checks for a newer CLI version
+// by calling CheckUpgradeVersion with force=true (bypassing the 24-hour throttle), then
+// compares the latest version against the current version.Version. If an upgrade is
+// available, it delegates to UpgradeCli to download and apply the update. If already
+// up-to-date, it displays the current version.
+//
+// The upgrade flow: spinner start → CheckUpgradeVersion → version comparison →
+// UpgradeCli (if newer) or display current version (if same).
+//
+// This function is only compiled when the "noautoupgrade" build tag is NOT set.
+// When the tag IS set, command_upgrade_noop.go provides a no-op implementation.
 func cmdUpgrade(c *cli.Context) error {
 	c.Context = log.WithCommandContext(c.Context, c.Command.Name)
 	logger := log.FromContext(c.Context)
@@ -40,13 +51,16 @@ func cmdUpgrade(c *cli.Context) error {
 
 	term.Spinner().Start("Checking for upgrades...")
 
+	// Force an immediate upgrade check, bypassing the normal 24-hour throttle.
 	latestVersion := CheckUpgradeVersion(c.Context, true)
 	if latestVersion != "" && latestVersion != version.Version {
 		term.Spinner().Stop(terminal.SpinnerStatusOK)
+		// Set os.Args to re-execute with --version so the user sees the new version after upgrade.
 		os.Args = []string{os.Args[0], "--version"}
 		return UpgradeCli(c.Context, latestVersion)
 	}
 	term.Spinner().Stop(terminal.SpinnerStatusWarnOK)
+	// If the latest version equals the current version, inform the user they're up-to-date.
 	if latestVersion == version.Version {
 		term.Printf("Akamai CLI (%s) is already up-to-date", color.CyanString("v"+version.Version))
 		return nil

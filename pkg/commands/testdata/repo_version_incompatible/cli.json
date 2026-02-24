@@ -1,0 +1,14 @@
+{
+  "version": "99.0.0",
+  "requirements": {
+    "go": "1.14.0"
+  },
+  "commands": [
+    {
+      "name": "incompat-test",
+      "aliases": ["it"],
+      "description": "Test command with incompatible version",
+      "version": "1.0.0"
+    }
+  ]
+}

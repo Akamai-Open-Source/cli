@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "requirements": {
+    "go": "1.14.0"
+  },
+  "commands": [
+    {
+      "name": "compat-test",
+      "aliases": ["ct"],
+      "description": "Test command with compatible version",
+      "version": "1.0.0"
+    }
+  ]
+}

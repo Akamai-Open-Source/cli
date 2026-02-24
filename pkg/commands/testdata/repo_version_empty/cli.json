@@ -1,0 +1,12 @@
+{
+  "requirements": {
+    "go": "1.14.0"
+  },
+  "commands": [
+    {
+      "name": "noversion-test",
+      "aliases": ["nt"],
+      "description": "Test command without version field"
+    }
+  ]
+}

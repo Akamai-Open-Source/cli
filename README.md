@@ -279,6 +279,15 @@ Before you start to build your own commands, make sure you meet these prerequisi
 
 As long as the result is executable, you can use any of the supported languages to build your commands, including Python, Go, and JavaScript.
 
+For the complete technical specification of the plugin contract, see [Plugin Contract](docs/plugin-contract.md) and [cli.json Schema](docs/cli-json-schema.md).
+
+### Plugin Development Documentation
+
+For plugin authors who want to build or maintain CLI packages, we provide detailed technical documentation:
+
+- **[Plugin Contract](docs/plugin-contract.md)** — Formal specification of required flags, executable naming conventions (`akamai-<command>` / `akamai<Command>`), exit code conventions, help behavior, and the `SkipFlagParsing` execution contract.
+- **[cli.json Schema](docs/cli-json-schema.md)** — Formal schema documentation for the `cli.json` package manifest, including all supported fields (`name`, `version`, `commands[]`, `bin`, `requirements`, `aliases`, `description`, `auto-complete`, `ldflags`) with examples and validation rules.
+
 ### Logging
 
 To see additional log information, prepend `AKAMAI_LOG=<logging-level>` to any CLI command. You can specify one of the following logging levels:
@@ -367,3 +376,26 @@ When you complete an operation, Akamai CLI generates one of these exit codes:
 - `5` (Application error) - Indicates an error with the initial setup. Occurs when you run Akamai CLI for the first time.
 - `6` (Syntax error) - Indicates that the latest command or script cannot be processed.
 - `7` (Syntax error) - Indicates that the commands in your installed packages have conflicting names. To fix this, add a prefix to the commands that have the same name.
+
+### Package command exit codes
+
+Package management commands (`install`, `update`, `uninstall`) use standardized exit codes:
+
+- `0` (Success) - The operation completed successfully.
+- `1` (User error) - A user-correctable problem occurred, such as invalid arguments or a missing repository.
+- `2` (System error) - An internal or system-level error occurred, such as a filesystem or network failure.
+
+Plugin commands (installed packages) return their own exit codes, which are passed through to the caller unchanged.
+
+## Environment variables
+
+The following environment variables affect Akamai CLI behavior and are useful for scripting and automation:
+
+- `AKAMAI_CLI_HOME` — Override the default `~/.akamai-cli` directory.
+- `AKAMAI_EDGERC` — Override the default `.edgerc` location (equivalent to the `--edgerc` flag).
+- `AKAMAI_EDGERC_SECTION` — Override the default credentials section (equivalent to the `--section` flag).
+- `AKAMAI_EDGERC_ACCOUNT_KEY` — Account switch key (equivalent to the `--accountkey` flag).
+- `AKAMAI_CLI` — Set to `1` when running inside CLI (read-only; set automatically by CLI).
+- `AKAMAI_CLI_VERSION` — Current CLI version string (read-only; set automatically by CLI).
+- `AKAMAI_LOG` — Log level: `fatal`, `error`, `warn`, `info`, `debug`.
+- `AKAMAI_CLI_LOG_PATH` — File path for log output.

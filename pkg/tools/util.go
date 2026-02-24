@@ -35,20 +35,24 @@ func Self() string {
 // * $AKAMAI_CLI_HOME is not defined
 //
 // * $AKAMAI_CLI_HOME/.akamai-cli does not exist, and we cannot create it
+//
+// Exit codes follow the documented 0/1/2 convention: 1 for user/configuration errors.
 func GetAkamaiCliPath() (string, error) {
 	cliHome := os.Getenv("AKAMAI_CLI_HOME")
 	if cliHome == "" {
 		var err error
 		cliHome, err = homedir.Dir()
 		if err != nil {
-			return "", cli.Exit("Package install directory could not be found. Please set $AKAMAI_CLI_HOME.", -1)
+			// Exit code 1: user/configuration error — home directory cannot be determined.
+			return "", cli.Exit("Package install directory could not be found. Please set $AKAMAI_CLI_HOME.", 1)
 		}
 	}
 
 	cliPath := filepath.Join(cliHome, ".akamai-cli")
 	err := os.MkdirAll(cliPath, 0700)
 	if err != nil {
-		return "", cli.Exit("Unable to create Akamai CLI root directory.", -1)
+		// Exit code 1: user/configuration error — CLI root directory cannot be created.
+		return "", cli.Exit("Unable to create Akamai CLI root directory.", 1)
 	}
 
 	return cliPath, nil

@@ -615,3 +615,69 @@ func TestCmdInstall(t *testing.T) {
 		})
 	}
 }
+
+// TestCmdInstallExitCodes verifies that install command failure paths return the
+// correct standardized exit codes via the cli.ExitCoder interface.
+// Exit code conventions: 0 = success, 1 = user error, 2 = system error.
+func TestCmdInstallExitCodes(t *testing.T) {
+	tests := map[string]struct {
+		args         []string
+		init         func(*testing.T, *mocked)
+		withError    string
+		expectedCode int
+	}{
+		"exit code 1 when no repository URL provided": {
+			args:         []string{},
+			init:         func(_ *testing.T, _ *mocked) {},
+			withError:    "You must specify a repository URL",
+			expectedCode: 1,
+		},
+		"exit code 1 when git clone fails with package not available": {
+			args: []string{"test-cmd"},
+			init: func(_ *testing.T, m *mocked) {
+				m.term.On("Spinner").Return(m.term).Once()
+				m.term.On("Start", "Attempting to fetch package configuration from %s...", []interface{}{"https://github.com/akamai/cli-test-cmd.git"}).Return().Once()
+
+				h := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusNotFound)
+				}))
+				githubRawURLTemplate = h.URL + "/akamai/%s/master/cli.json"
+				m.term.On("Stop", terminal.SpinnerStatusFail).Return().Once()
+				m.term.On("WriteError", mock.Anything).Return(0, nil).Once()
+			},
+			withError:    "not available",
+			expectedCode: 1,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, os.Setenv("AKAMAI_CLI_HOME", filepath.Join(".", "testdata")))
+			m := &mocked{&terminal.Mock{}, &config.Mock{}, &git.MockRepo{}, &packages.Mock{}, nil}
+
+			command := &cli.Command{
+				Name:   "install",
+				Action: cmdInstall(m.gitRepo, m.langManager),
+			}
+			app, ctx := setupTestApp(command, m)
+			args := os.Args[0:1]
+			args = append(args, "install")
+			args = append(args, test.args...)
+
+			test.init(t, m)
+			err := app.RunContext(ctx, args)
+
+			// Verify the error message is present
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), test.withError)
+
+			// Verify the exit code numerically via cli.ExitCoder interface.
+			// cli.Exit returns a cli.ExitCoder; errors.As extracts it from the error chain.
+			var exitErr cli.ExitCoder
+			if assert.ErrorAs(t, err, &exitErr) {
+				assert.Equal(t, test.expectedCode, exitErr.ExitCode(),
+					"expected exit code %d but got %d for case %q", test.expectedCode, exitErr.ExitCode(), name)
+			}
+		})
+	}
+}

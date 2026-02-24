@@ -416,6 +416,13 @@ func TestCmdUpdate(t *testing.T) {
 			init:      func(_ *testing.T, _ *mocked) {},
 			withError: fmt.Sprintf("Command \"not-found\" not found. Try \"%s help\".\n", tools.Self()),
 		},
+		"return error when command not found": {
+			args: []string{"nonexistent-command"},
+			init: func(_ *testing.T, m *mocked) {
+				m.langManager.On("FindExec", mock.Anything, mock.Anything).Return(nil, packages.ErrNoExeFound).Once()
+			},
+			withError: "not found",
+		},
 	}
 
 	for name, test := range tests {

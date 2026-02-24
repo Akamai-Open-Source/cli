@@ -33,6 +33,11 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// cmdUninstall creates a cli.ActionFunc that handles the "akamai uninstall" command.
+// It removes one or more installed commands by name, delegating to uninstallPackage for
+// each specified command. Uses the named-return-error pattern with deferred timing/logging.
+//
+// Exit codes: 0 success, 1 user error (command not found, removal failure).
 func cmdUninstall(langManager packages.LangManager) cli.ActionFunc {
 	return func(c *cli.Context) (e error) {
 		c.Context = log.WithCommandContext(c.Context, c.Command.Name)
@@ -57,6 +62,14 @@ func cmdUninstall(langManager packages.LangManager) cli.ActionFunc {
 	}
 }
 
+// uninstallPackage removes a single installed command by its name. It locates the
+// command's executable via findExec, determines the package directory, removes the
+// repository directory and any associated Python virtual environment. If the executable
+// is not found but a matching package directory exists (ErrNoExeFound), it removes
+// that directory as a fallback cleanup.
+//
+// Uses a spinner for user feedback during the removal process. Returns an error with
+// a user-facing message if the command cannot be found or removal fails.
 func uninstallPackage(ctx context.Context, langManager packages.LangManager, cmd string, logger *slog.Logger) error {
 	term := terminal.Get(ctx)
 
@@ -73,7 +86,9 @@ func uninstallPackage(ctx context.Context, langManager packages.LangManager, cmd
 			return fmt.Errorf("command \"%s\" not found. Try \"%s help\" : %v", cmd, tools.Self(), err)
 		}
 
-		// err = ErrNoExeFound - there is a directory but without any executables
+		// When the executable is not found (ErrNoExeFound), the package directory may still exist
+		// without a valid binary (e.g., failed build). Search the package bin paths for a directory
+		// matching the command name and remove it as a cleanup measure.
 		paths := filepath.SplitList(getPackageBinPaths())
 		for i, path := range paths {
 			// trim home directory part of a path to exclude cases where command name could be a part of it
@@ -92,6 +107,8 @@ func uninstallPackage(ctx context.Context, langManager packages.LangManager, cmd
 		return fmt.Errorf("command \"%s\" not found. Try \"%s help\"", cmd, tools.Self())
 	}
 
+	// Start a spinner to provide feedback during the potentially slow removal of
+	// repository files and virtual environment directories.
 	term.Spinner().Start(fmt.Sprintf("Attempting to uninstall \"%s\" command...", cmd))
 	logger.Debug(fmt.Sprintf("Attempting to uninstall \"%s\" command...", cmd))
 
@@ -114,6 +131,9 @@ func uninstallPackage(ctx context.Context, langManager packages.LangManager, cmd
 		return fmt.Errorf("unable to remove directory %s: %v", repoDir, err)
 	}
 
+	// Remove the Python virtual environment directory if one exists. Virtual environments
+	// are stored under ~/.akamai-cli/venv/<package-name>/ and are managed separately
+	// from the package source directory.
 	venvPath, err := tools.GetPkgVenvPath(fmt.Sprintf("cli-%s", cmd))
 	if err != nil {
 		term.Spinner().Fail()

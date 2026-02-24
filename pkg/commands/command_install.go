@@ -40,6 +40,14 @@ var (
 	githubRawURLTemplate = "https://raw.githubusercontent.com/akamai/%s/master/cli.json"
 )
 
+// cmdInstall creates a cli.ActionFunc that handles the "akamai install" command. It installs
+// one or more packages from Git repositories or the official Akamai package catalog. For each
+// repository argument, it resolves the URL via tools.Githubize, fetches the cli.json manifest,
+// downloads binaries or clones the repository, installs language-specific dependencies, and
+// registers the new commands with the running application.
+//
+// Exit codes: 0 success, 1 user error (missing args, repo not found), 2 system error
+// (filesystem failures). Uses the named-return-error pattern with deferred timing/logging.
 func cmdInstall(git git.Repository, langManager packages.LangManager) cli.ActionFunc {
 	return func(c *cli.Context) (e error) {
 		start := time.Now()
@@ -64,6 +72,8 @@ func cmdInstall(git git.Repository, langManager packages.LangManager) cli.Action
 
 		oldCmds := getCommands(c)
 
+		// Install each package sequentially. On success, register the new commands with
+		// the running application so they appear in help and list output immediately.
 		for _, repo := range c.Args().Slice() {
 			repo = tools.Githubize(repo)
 			subCmd, err := installPackage(c.Context, git, langManager, repo)
@@ -81,6 +91,9 @@ func cmdInstall(git git.Repository, langManager packages.LangManager) cli.Action
 	}
 }
 
+// packageListDiff computes and displays the difference between the command list before and
+// after an install operation. Commands added are highlighted in green, removed commands in red,
+// and unchanged commands in bold. It delegates rendering to listInstalledCommands.
 func packageListDiff(c *cli.Context, oldcmds []subcommands) {
 	cmds := getCommands(c)
 
@@ -128,12 +141,22 @@ func packageListDiff(c *cli.Context, oldcmds []subcommands) {
 	listInstalledCommands(c, added, removed)
 }
 
+// installPackage installs a single package from the given repository URL. It first attempts
+// to fetch the cli.json manifest from GitHub's raw content API to determine if the package
+// provides pre-built binaries. If binary installation fails or the package requires source
+// compilation, it falls back to cloning the repository and building from source.
+//
+// Returns the parsed subcommands manifest on success, or an error wrapped in cli.Exit with
+// appropriate exit codes: 0 (package already exists, warning), 1 (user error such as missing
+// repo), 2 (system error such as filesystem failure).
 func installPackage(ctx context.Context, gitRepo git.Repository, langManager packages.LangManager, repo string) (*subcommands, error) {
 	logger := log.FromContext(ctx)
 	logger.Debug(fmt.Sprintf("Installing package from repository: %s", repo))
 
 	srcPath, err := tools.GetAkamaiCliSrcPath()
 	if err != nil {
+		// System-level error (exit code 2 category): unable to resolve the CLI source directory.
+		// Propagated as a raw error to preserve backward compatibility with existing callers.
 		logger.Error(fmt.Sprintf("Unable to get akamai cli source path: %v", err))
 		return nil, err
 	}
@@ -150,6 +173,9 @@ func installPackage(ctx context.Context, gitRepo git.Repository, langManager pac
 		return nil, cli.Exit(color.YellowString("%s", warningMsg), 0)
 	}
 
+	// Fetch the cli.json manifest from GitHub's raw content API before cloning. This allows
+	// the CLI to determine whether pre-built binaries are available, avoiding unnecessary
+	// repository clones for binary-only packages.
 	spin.Start("Attempting to fetch package configuration from %s...", repo)
 
 	base := filepath.Base(dirName)
@@ -167,6 +193,9 @@ func installPackage(ctx context.Context, gitRepo git.Repository, langManager pac
 	}
 	spin.OK()
 
+	// If the package provides pre-built binaries, attempt to download them directly.
+	// Falls back to source cloning if binary download fails (e.g., binary not available
+	// for the current OS/architecture).
 	if isBinary(cmdPackage) {
 		logger.Debug(fmt.Sprintf("Installing binaries for package in directory: %s", packageDir))
 		ok, subCmd := installPackageBinaries(ctx, packageDir, cmdPackage, logger)
@@ -209,13 +238,17 @@ func installPackage(ctx context.Context, gitRepo git.Repository, langManager pac
 			logger.Error(fmt.Sprintf("Failed to remove package directory: %v", err))
 			return nil, err
 		}
-		return nil, cli.Exit("Unable to install selected package", 1)
+		return nil, cli.Exit(color.RedString("Unable to install selected package"), 1)
 	}
 	logger.Debug(fmt.Sprintf("Dependencies installed successfully for package in directory: %s", packageDir))
 
 	return subCmd, nil
 }
 
+// installPackageDependencies reads the cli.json manifest from dir, extracts language
+// requirements and ldflags, and invokes langManager.Install to build/install the package.
+// Uses a spinner for user feedback. Returns (true, subcommands) on success, (false, nil)
+// on failure.
 func installPackageDependencies(ctx context.Context, langManager packages.LangManager, dir string, logger *slog.Logger) (bool, *subcommands) {
 	term := terminal.Get(ctx)
 	term.Spinner().Start("Installing Dependencies...")
@@ -263,6 +296,10 @@ func installPackageDependencies(ctx context.Context, langManager packages.LangMa
 	return true, &cmdPackage
 }
 
+// installPackageBinaries downloads pre-built binaries for all commands in the package
+// manifest. Creates a bin/ subdirectory under dir, downloads each binary via downloadBin,
+// and writes the cli.json manifest to the package directory. Uses a spinner for user feedback.
+// Returns (true, subcommands) on success, (false, nil) on failure.
 func installPackageBinaries(ctx context.Context, dir string, cmdPackage subcommands, logger *slog.Logger) (bool, *subcommands) {
 	term := terminal.Get(ctx)
 	spin := term.Spinner()
